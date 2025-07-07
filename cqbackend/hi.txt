@@ -1,0 +1,4 @@
+| Component            | Interval               | Notes                                     |
+| -------------------- | ---------------------- | ----------------------------------------- |
+| **Frontend polling** | Every **1 minute**     | Enough for most UI sync needs, low strain |
+| **Backend cron job** | Every **5–10 minutes** | Good balance for syncing many users       |

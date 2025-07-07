@@ -1,0 +1,1232 @@
+// MailInboxPage.tsx
+/* eslint-disable prefer-const */
+"use client";
+import axios from 'axios';
+import { useState, useEffect, useCallback } from "react";
+import {
+  Star,
+  StarOff,
+  Trash2,
+  MailCheck,
+  CheckSquare,
+  Square,
+  ArrowLeft,
+  Reply,
+  Upload,
+  FileText,
+  Folder,
+  ReplyAll,
+  Forward,
+  ShieldAlert,
+  ChevronDown,
+  ArrowDownAZ,
+  ArrowUpZA,
+  RotateCcw,
+} from "lucide-react";
+import Image from "next/image";
+import { useSearch } from "./SearchContext";
+import TypewriterLoader from "./TypewriterLoader"; // Make sure path is correct
+import useRouter from "./useRouter"; // Make sure path is correct
+
+// Define the Email type based on your backend's EmailMessage structure
+type Email = {
+  id: number; // Assuming your backend provides an ID, or you're using message_id as a unique ID
+  message_id: string; // Directly from backend
+  sender: string; // Mapped from backend's 'from_email'
+  subject: string; // Directly from backend
+  message: string; // Mapped from backend's 'summary' or a slice of 'html_content'
+  time: string; // Mapped from backend's 'date' (formatted)
+  starred: boolean; // Managed client-side, or from backend's 'is_starred'
+  unread: boolean; // Managed client-side, or from backend's '!is_read'
+  type: string; // Mapped from backend's 'folder' or other status
+  src: string; // Frontend-specific for sender image
+  from: string; // Direct from backend: envelope.from?.[0]?.address
+  to: string; // Direct from backend: (envelope.to?.map(t => t.address).filter(Boolean) || []).join(',')
+  date: Date | string; // Direct from backend: envelope.date (can be Date object or ISO string)
+  summary: string; // Direct from backend (used for 'message' in your frontend)
+  html_content: string; // Direct from backend
+  attachments: string[]; // Direct from backend (parsed from JSON)
+};
+
+
+export default function MailInboxPage() {
+  const { searchTerm } = useSearch();
+  const [emailList, setEmailList] = useState<Email[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [isFullView, setIsFullView] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [page, setPage] = useState(1);
+  const [selectedFilter, setSelectedFilter] = useState<string>("all");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [tooltipOpenId, setTooltipOpenId] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<"latest" | "oldest">("latest");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+const [showReplyBox, setShowReplyBox] = useState(false);
+const [replyText, setReplyText] = useState('');
+const [replyHtml, setReplyHtml] = useState('');
+const [replySubject, setReplySubject] = useState('');
+const [loadingReply, setLoadingReply] = useState(false);
+  const [blink, setBlink] = useState(false);
+const [showForwardBox, setShowForwardBox] = useState(false);
+const [forwardTo, setForwardTo] = useState('');
+const [forwardSubject, setForwardSubject] = useState('');
+const [forwardText, setForwardText] = useState('');
+const [loadingForward, setLoadingForward] = useState(false);
+  const [showFull, setShowFull] = useState(false); // <-- Add this at the top level
+  const emailsPerPage = 5;
+
+  const fetchEmails = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('cqtoken');
+
+      if (!token) {
+        setError("Authentication token not found. Please log in.");
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/inbox`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        credentials: 'omit',
+      });
+
+      console.log('API Response Status:', response.status);
+      console.log('API Response OK:', response.ok);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response Text:', errorText);
+
+        if (response.status === 401) {
+          setError("Authentication failed. Please log in again.");
+          localStorage.removeItem('accessToken');
+        } else {
+          throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        }
+      }
+
+      const data: any[] = await response.json();
+
+      console.log('Parsed API Data:', data);
+
+      if (!Array.isArray(data)) {
+        throw new TypeError("API response is not an array. Received:" + JSON.stringify(data));
+      }
+
+      const mappedEmails: Email[] = data.map((email: any, index: number) => {
+        let parsedAttachments: string[] = [];
+        try {
+          if (typeof email.attachments === 'string' && email.attachments.trim().length > 0) {
+            parsedAttachments = JSON.parse(email.attachments);
+          }
+        } catch (parseError) {
+          parsedAttachments = [];
+        }
+
+        // DO NOT truncate html_content here! Always keep the full message.
+        return {
+          id: email.id || email.message_id || `email-${index}`,
+          message_id: email.message_id,
+          sender: email.from || "Unknown Sender",
+          subject: email.subject || "(No Subject)",
+          message: email.summary || (email.html_content ? email.html_content.slice(0, 100) : "No message content."),
+          time: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+          starred: email.is_starred || false,
+          unread: !email.is_read || true,
+          type: email.folder === 'INBOX' ? 'inbox' : 'other',
+          src: email.from_email?.toLowerCase().includes('google') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/800px-Google_%22G%22_logo.svg.png' :
+               email.from_email?.toLowerCase().includes('linkedin') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/LinkedIn_Logo.svg/800px-LinkedIn_Logo.svg.png' :
+               email.from_email?.toLowerCase().includes('facebook') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Facebook_f_logo_%282019%29.svg/800px-Facebook_f_logo_%282019%29.svg.png' :
+               email.from_email?.toLowerCase().includes('twitter') ? 'https://cdn.prod.website-files.com/5d66bdc65e51a0d114d15891/64cebdd90aef8ef8c749e848_X-EverythingApp-Logo-Twitter.jpg' :
+               email.from_email?.toLowerCase().includes('amazon') ? 'https://w7.pngwing.com/pngs/141/900/png-transparent-amazon-com-amazon-echo-amazon-music-the-everything-store-jeff-bezos-and-the-age-of-amazon-kindle-fire-black-friday-miscellaneous-text-logo.png' :
+               email.from_email?.toLowerCase().includes('netflix') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/800px-Netflix_2015_logo.svg.png' :
+               email.from_email?.toLowerCase().includes('spotify') ? 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRfVoqbXvQlq8MPVaqn3PorKrb1Ue6qvAWYBg&s' :
+               '/default-avatar.png',
+          from: email.from || email.from_email || "",
+          to: (email.to && Array.isArray(email.to)) ? email.to.map((t: any) => t.address).filter(Boolean).join(',') : (typeof email.to === 'string' ? email.to : ""),
+          date: email.date || "",
+          summary: email.summary || "",
+          html_content: email.html_content || "", // Always keep full content
+          attachments: parsedAttachments,
+        };
+      });
+      setEmailList(mappedEmails);
+    } catch (e: any) {
+      console.error("Failed to fetch emails:", e);
+      setError(e.message || "Failed to load emails.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEmails();
+  }, [fetchEmails]);
+
+  const filteredEmails = emailList.filter((email) => {
+    const matchSearch =
+      email.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      email.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      email.message.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchFilter =
+      selectedFilter === "all" ||
+      (selectedFilter === "starred" && email.starred) ||
+      (selectedFilter === "unstarred" && !email.starred) ||
+      (selectedFilter === "read" && !email.unread) ||
+      (selectedFilter === "unread" && email.unread);
+
+    return matchSearch && matchFilter;
+  });
+
+  const sortedEmails = [...filteredEmails].sort((a, b) => {
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    return sortBy === "latest" ? dateB - dateA : dateA - dateB;
+  });
+
+  const paginatedEmails = sortedEmails.slice(
+    (page - 1) * emailsPerPage,
+    page * emailsPerPage
+  );
+
+  const totalPages = Math.ceil(filteredEmails.length / emailsPerPage);
+
+  const allSelected =
+    paginatedEmails.length > 0 &&
+    paginatedEmails.every((email) => selectedIds.includes(email.id));
+
+  const toggleStar = (id: number) => {
+    setEmailList((prev) =>
+      prev.map((email) =>
+        email.id === id ? { ...email, starred: !email.starred } : email
+      )
+    );
+  };
+
+  const toggleCheckbox = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds((prev) =>
+        prev.filter((id) => !paginatedEmails.some((email) => email.id === id))
+      );
+    } else {
+      setSelectedIds((prev) => [
+        ...prev,
+        ...paginatedEmails.filter((email) => !prev.includes(email.id)).map(
+          (email) => email.id
+        ),
+      ]);
+    }
+  };
+
+  const handleArchive = () => {
+    setEmailList((prev) =>
+      prev.map((email) =>
+        selectedIds.includes(email.id) ? { ...email, type: "archived" } : email
+      )
+    );
+    setSelectedIds([]);
+  };
+  const handleSpam = () => {
+    setEmailList((prev) =>
+      prev.map((email) =>
+        selectedIds.includes(email.id) ? { ...email, type: "spam" } : email
+      )
+    );
+    setSelectedIds([]);
+  };
+  const handleMarkRead = () => {
+    setEmailList((prev) =>
+      prev.map((email) =>
+        selectedIds.includes(email.id) ? { ...email, unread: false } : email
+      )
+    );
+    setSelectedIds([]);
+  };
+  
+const handleBulkDelete = async () => {
+  const token = localStorage.getItem('cqtoken'); // 🔐 Get token from localStorage
+
+  for (const id of selectedIds) {
+    const email = emailList.find((e) => e.id === id);
+    if (!email?.message_id) continue;
+
+    const encoded = encodeURIComponent(email.message_id);
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash/${encoded}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`, // 🔐 Add token here
+        },
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        console.warn(`❌ Failed to trash ${email.message_id}: ${data.message}`);
+      }
+    } catch (err) {
+      console.error(`❌ Error trashing ${email.message_id}:`, err);
+    }
+  }
+
+  // ✅ Remove from UI after processing
+  setEmailList((prev) => prev.filter((email) => !selectedIds.includes(email.id)));
+  setSelectedIds([]);
+};
+const handleDelete = async (ids: number[]) => {
+  const token = localStorage.getItem('cqtoken');
+
+  for (const id of ids) {
+    const email = emailList.find((e) => e.id === id);
+    if (!email?.message_id) continue;
+
+    const encoded = encodeURIComponent(email.message_id);
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash/${encoded}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        console.warn(`❌ Failed to trash ${email.message_id}: ${data.message}`);
+      }
+    } catch (err) {
+      console.error(`❌ Error trashing ${email.message_id}:`, err);
+    }
+  }
+
+  // Remove from UI
+  setEmailList((prev) => prev.filter((email) => !ids.includes(email.id)));
+};
+
+
+
+  const handleMoveToFolder = () => {
+    alert("Move to folder functionality is not implemented yet.");
+    setSelectedIds([]);
+  };
+  const handleDownloadPDF = () => {
+    alert("Download as PDF functionality is not implemented yet.");
+    setSelectedIds([]);
+  };
+  const handleExport = () => {
+    alert("Export email functionality is not implemented yet.");
+    setSelectedIds([]);
+  };
+
+  const handleEmailClick = (email: Email) => {
+    setSelectedEmail(email);
+    setIsFullView(false);
+    setShowFull(false);
+    if (email.unread) {
+      setEmailList(prev => prev.map(e => e.id === email.id ? { ...e, unread: false } : e));
+    }
+    // Remove fetchConversationThread(email.message_id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleBack = () => {
+    setSelectedEmail(null);
+    setIsFullView(false);
+  };
+
+  const handleReload = () => {
+    fetchEmails();
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+
+      setBlink(true);
+      setTimeout(() => setBlink(false), 300);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const router = useRouter();
+
+  return (
+    <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">
+      <div
+        className={`bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col md:flex-row overflow-hidden transition ${
+          blink ? "ring-4 ring-blue-400" : ""
+        }`}
+      >
+        {/* Email List */}
+        <div
+          className={`${
+            selectedEmail && !isFullView
+              ? "hidden md:block md:w-1/2"
+              : selectedEmail && isFullView
+              ? "hidden"
+              : "w-full"
+          } overflow-y-auto bg-white`}
+        >
+          {/* Top Bar */}
+          <div className="flex items-center justify-between px-4 py-2 sticky top-0 bg-white border-b border-blue-700 z-10">
+            <div className="flex items-center gap-4 text-blue-700">
+              <div className="relative flex items-center">
+                <button
+                  onClick={handleSelectAll}
+                  className="flex items-center gap-1"
+                  aria-label="Select all"
+                >
+                  {allSelected ? (
+                    <CheckSquare className="w-5 h-5 text-blue-700" />
+                  ) : (
+                    <Square className="w-5 h-5 text-blue-700" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setIsDropdownOpen((prev) => !prev)}
+                  className="flex items-center justify-center w-8 h-8 ml-1 rounded hover:bg-blue-100"
+                  type="button"
+                  aria-label="Filter dropdown"
+                >
+                  <ChevronDown className="w-4 h-4 text-blue-700" />
+                </button>
+                {isDropdownOpen && (
+                  <div className="absolute left-0 mt-56 min-w-[160px] bg-white border border-blue-200 rounded-lg shadow-lg z-20 flex flex-col py-1">
+                    {[
+                      { label: "All", value: "all" },
+                      { label: "Read", value: "read" },
+                      { label: "Unread", value: "unread" },
+                      { label: "Starred", value: "starred" },
+                      { label: "Unstarred", value: "unstarred" },
+                      { label: "Archived", value: "archived" },
+                    ]
+                      .filter((option) => selectedFilter !== option.value)
+                      .map((option) => (
+                        <div
+                          key={option.value}
+                          onClick={() => {
+                            setSelectedFilter(option.value);
+                            setIsDropdownOpen(false);
+                            setPage(1);
+                          }}
+                          className="w-full flex items-center px-4 py-2 cursor-pointer hover:bg-gray-100 text-base text-gray-700"
+                        >
+                          {option.label}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+              {selectedFilter !== "all" && (
+                <div className="text-xs text-blue-700">
+                  Filter:{" "}
+                  <span className="font-semibold text-blue-700">
+                    {selectedFilter}
+                  </span>
+                </div>
+              )}
+              <button onClick={handleMarkRead}>
+                <MailCheck className="w-5 h-5 text-blue-700" />
+              </button>
+              <button onClick={handleBulkDelete}>
+                <Trash2 className="w-5 h-5 text-blue-700" />
+              </button>
+              <button onClick={handleReload}>
+                <RotateCcw className="w-5 h-5 text-blue-700" />
+              </button>
+            </div>
+            {selectedIds.length > 0 && (
+              <div className="flex items-center gap-2 px-4 py-2 sticky top-12 z-20">
+                {/* Archive */}
+                <button
+                  onClick={handleArchive}
+                  className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-700 transition"
+                  title="Archive Selected"
+                >
+                  <ShieldAlert className="w-5 h-5" />
+                </button>
+
+                {/* Spam */}
+                <button
+                  onClick={handleSpam}
+                  className="p-2 rounded-full bg-pink-100 hover:bg-pink-200 text-pink-600 transition"
+                  title="Mark as Spam"
+                >
+                  <ShieldAlert className="w-5 h-5 rotate-45" />
+                </button>
+
+                {/* Move to Folder */}
+                <button
+                  onClick={handleMoveToFolder}
+                  className="p-2 rounded-full bg-purple-100 hover:bg-purple-200 text-purple-600 transition"
+                  title="Move to Folder"
+                >
+                  <Folder className="w-5 h-5" />
+                </button>
+
+                {/* Download as PDF */}
+                <button
+                  onClick={handleDownloadPDF}
+                  className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-700 transition"
+                  title="Download as PDF"
+                >
+                  <FileText className="w-5 h-5" />
+                </button>
+                {/* Export Email */}
+                <button
+                  onClick={handleExport}
+                  className="p-2 rounded-full bg-orange-100 hover:bg-orange-200 text-orange-600 transition"
+                  title="Export Email"
+                >
+                  <Upload className="w-5 h-5" />
+                </button>
+                {/* Deselect All */}
+              </div>
+            )}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  Sort by:
+                </span>
+                <button
+                  onClick={() =>
+                    setSortBy(sortBy === "latest" ? "oldest" : "latest")
+                  }
+                  className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                  title={sortBy === "latest" ? "Latest First" : "Oldest First"}
+                >
+                  {sortBy === "latest" ? (
+                    <ArrowDownAZ className="w-5 h-5 text-gray-700 dark:text-white" />
+                  ) : (
+                    <ArrowUpZA className="w-5 h-5 text-gray-700 dark:text-white" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {loading && (
+            <div className="flex items-center justify-center p-8">
+              <TypewriterLoader />
+            </div>
+          )}
+
+          {error && (
+            <div className="text-red-500 text-center p-4">
+              Error: {error}
+            </div>
+          )}
+
+          {!loading && !error && paginatedEmails.length === 0 && (
+            <div className="text-gray-500 text-center p-8">
+              No emails found.
+            </div>
+          )}
+
+          {!loading && !error && paginatedEmails.map((email) => (
+            <div
+              key={email.id}
+              className={`group flex items-center gap-3 px-4 py-3 border-b border-gray-200 transition-colors duration-200 cursor-pointer
+                ${email.unread ? "font-semibold bg-gray-50" : "bg-transparent"}
+                hover:bg-blue-50`}
+              onClick={() => handleEmailClick(email)}
+            >
+              <input
+                type="checkbox"
+                checked={selectedIds.includes(email.id)}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  toggleCheckbox(email.id);
+                }}
+                className="accent-blue-600"
+              />
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleStar(email.id);
+                }}
+                className="text-gray-500 hover:text-yellow-500"
+              >
+                {email.starred ? (
+                  <Star className="w-4 h-4 fill-yellow-400" />
+                ) : (
+                  <StarOff className="w-4 h-4" />
+                )}
+              </div>
+              <div className="w-1/4 flex items-center gap-2 truncate text-black relative">
+                <Image
+                  src={email.src}
+                  alt={email.sender}
+                  width={28}
+                  height={28}
+                  className="rounded-full object-cover border border-gray-200 cursor-pointer"
+                  onMouseEnter={() => setTooltipOpenId(email.id)}
+                  onMouseLeave={() => setTooltipOpenId(null)}
+                />
+                <span
+                  className="cursor-pointer underline decoration-dotted decoration-1"
+                  onMouseEnter={() => setTooltipOpenId(email.id)}
+                  onMouseLeave={() => setTooltipOpenId(null)}
+                >
+                  {email.sender}
+                </span>
+                {tooltipOpenId === email.id && (
+                  <div
+                    className="pointer-events-auto absolute left-1/2 top-full z-30 w-max min-w-[180px] max-w-xs -translate-x-1/2 mt-2 px-4 py-2 bg-black text-white text-xs rounded shadow-lg opacity-100 transition-opacity duration-200 whitespace-nowrap break-words"
+                    style={{ maxWidth: "90vw" }}
+                    onMouseEnter={() => setTooltipOpenId(email.id)}
+                    onMouseLeave={() => setTooltipOpenId(null)}
+                  >
+                    <div>
+                      <span className="font-semibold">From:</span>{" "}
+                      {email.from}
+                    </div>
+                    <div>
+                      <span className="font-semibold">To:</span> {email.to}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="w-2/4 truncate">
+                <div className="text-sm text-black font-medium">
+                  {email.subject}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {email.message}
+                </div>
+              </div>
+              <div className="w-1/4 text-right text-sm text-gray-400">
+                {email.time}
+              </div>
+              {/* Hover Actions */}
+              <div className="hidden group-hover:flex gap-2 ml-2 items-center">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleStar(email.id);
+                  }}
+                  className="text-yellow-500 hover:text-yellow-600"
+                  title="Star"
+                >
+                  <Star className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEmailList((prev) =>
+                      prev.filter((e2) => e2.id !== email.id)
+                    );
+                  }}
+                  className="text-blue-500 hover:text-blue-600"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Pagination */}
+          <div className="flex justify-between items-center px-4 py-2 border-t border-gray-200">
+            <button
+              onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+              disabled={page === 1}
+              className="text-blue-600 disabled:text-gray-400"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-600">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              onClick={() =>
+                setPage((prev) => Math.min(prev + 1, totalPages))
+              }
+              disabled={page === totalPages}
+              className="text-blue-600 disabled:text-gray-400"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
+        {/* Email Preview */}
+        {selectedEmail && (
+          <div
+            className={`$${isFullView ? "w-full" : "w-full md:w-9/12"} bg-gradient-to-br from-gray-50 to-gray-100 p-6 overflow-y-auto`}
+          >
+            <div className="bg-white/70 h-full backdrop-blur-md border border-gray-300 rounded-2xl shadow-2xl p-6 space-y-6 transition-all duration-300">
+              {/* Header */}
+              <div className="flex justify-between items-start">
+                <div>
+                  <button
+                    onClick={handleBack}
+                    className="text-gray-600 hover:text-blue-600 flex items-center gap-2 text-sm font-semibold"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to Inbox 
+                  </button>
+                  <h1 className="mt-4 text-2xl font-bold text-gray-800">
+                    {selectedEmail.subject}
+                  </h1>
+                  <p className="text-sm text-gray-600 mt-2">
+                    <span className="font-semibold text-gray-700">From:</span>{' '}
+                    {selectedEmail.sender}
+                    <br />
+                    <span className="font-semibold text-gray-700">To:</span>{' '}
+                    {selectedEmail.to}
+                  </p>
+                </div>
+                <Image
+                  src={selectedEmail.src}
+                  alt="Sender Logo"
+                  width={50}
+                  height={50}
+                  className="rounded-md object-contain drop-shadow-lg"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-4 border-t pt-4 border-gray-200">
+                <button className="text-yellow-500 hover:text-yellow-600 flex items-center gap-2 group">
+                  <Star className="w-5 h-5" />
+                  <span className="hidden md:inline group-hover:underline">
+                    Star
+                  </span>
+                </button>
+                <button className="text-blue-500 hover:text-blue-600 flex items-center gap-2 group">
+                  <Trash2 className="w-5 h-5" />
+          <span
+  onClick={() => handleDelete([emailList.find(e => e.id === selectedEmail.id)?.id || 0])}
+  className="text-red-600 cursor-pointer group-hover:underline"
+>
+  Delete
+        </span>
+
+
+
+                </button>
+                <button className="text-orange-500 hover:text-orange-600 flex items-center gap-2 group">
+                  <ShieldAlert className="w-5 h-5" />
+                  <span className="hidden md:inline group-hover:underline">
+                    Spam
+                  </span>
+                </button>
+                {/* Reply Button */}
+                <button
+  className="text-blue-500 hover:text-blue-600 flex items-center gap-2 group"
+  onClick={() => {
+    setReplySubject(
+      selectedEmail.subject.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`
+    );
+    setShowReplyBox(true);
+  }}
+>
+  <Reply className="w-5 h-5" />
+  <span className="hidden md:inline group-hover:underline">Reply</span>
+</button>
+
+                <button className="text-blue-600 hover:text-blue-700 flex items-center gap-2 group">
+                  <ReplyAll className="w-5 h-5" />
+                  <span className="hidden md:inline group-hover:underline">
+                    Reply All
+                  </span>
+                </button>
+                {/* Forward Button */}
+                <button
+  className="text-green-500 hover:text-green-600 flex items-center gap-2 group"
+  onClick={() => {
+    setForwardSubject(`Fwd: ${selectedEmail.subject}`);
+    setShowForwardBox(true);
+  }}
+>
+  <Forward className="w-5 h-5" />
+  <span className="hidden md:inline group-hover:underline">Forward</span>
+</button>
+
+{showForwardBox && (
+  <div className="mt-6 p-4 border rounded-md bg-white shadow-md space-y-4">
+    <input
+      type="email"
+      value={forwardTo}
+      onChange={(e) => setForwardTo(e.target.value)}
+      className="w-full p-2 border rounded text-sm"
+      placeholder="Recipient email"
+    />
+    <input
+      type="text"
+      value={forwardSubject}
+      onChange={(e) => setForwardSubject(e.target.value)}
+      className="w-full p-2 border rounded text-sm"
+      placeholder="Subject"
+    />
+    <textarea
+      rows={6}
+      value={forwardText}
+      onChange={(e) => setForwardText(e.target.value)}
+      className="w-full p-2 border rounded text-sm"
+      placeholder="Your message"
+    ></textarea>
+    <div className="flex justify-end gap-2">
+      <button
+        onClick={() => setShowForwardBox(false)}
+        className="text-sm text-gray-600 hover:underline"
+      >
+        Cancel
+      </button>
+      <button
+        onClick={async () => {
+          const token = localStorage.getItem('cqtoken');
+          if (!token) {
+            alert('You must be logged in to forward.');
+            return;
+          }
+
+          setLoadingForward(true);
+          try {
+            const res = await fetch(`http://localhost:4000/mail/forward/${encodeURIComponent(selectedEmail.message_id)}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                to: forwardTo,
+                subject: forwardSubject,
+                text: forwardText,
+                html: `<p>${forwardText.replace(/\n/g, '<br>')}</p>`,
+              }),
+            });
+
+            const result = await res.json();
+            console.log('Forward result:', result);
+
+            if (result.success) {
+              alert('Message forwarded successfully!');
+              setShowForwardBox(false);
+              setForwardTo('');
+              setForwardText('');
+            } else {
+              alert('Failed to forward message.');
+            }
+          } catch (err) {
+            console.error('Forward error:', err);
+            alert('Error forwarding message.');
+          } finally {
+            setLoadingForward(false);
+          }
+        }}
+        className="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+        disabled={loadingForward}
+      >
+        {loadingForward ? 'Sending...' : 'Forward'}
+      </button>
+    </div>
+  </div>
+)}
+              </div>
+{showReplyBox && (
+  <div className="mt-6 p-4 border rounded-md bg-white shadow-md space-y-4">
+    <input
+      type="text"
+      value={replySubject}
+      onChange={(e) => setReplySubject(e.target.value)}
+      className="w-full p-2 border rounded text-sm"
+      placeholder="Subject"
+    />
+    <textarea
+      rows={6}
+      value={replyText}
+      onChange={(e) => setReplyText(e.target.value)}
+      className="w-full p-2 border rounded text-sm"
+      placeholder="Your reply here..."
+    ></textarea>
+    <div className="flex justify-end gap-2">
+      <button
+        onClick={() => setShowReplyBox(false)}
+        className="text-sm text-gray-600 hover:underline"
+      >
+        Cancel
+      </button>
+      <button
+        onClick={async () => {
+          setLoadingReply(true);
+          const token = localStorage.getItem('cqtoken'); // ✅ Make sure this matches your login setup
+
+          if (!token) {
+            alert('You must be logged in to reply.');
+            setLoadingReply(false);
+            return;
+          }
+
+          try {
+            const res = await fetch(`http://localhost:4000/mail/reply/${encodeURIComponent(selectedEmail.message_id)}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`, // ✅ Auth header added
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                subject: replySubject,
+                text: replyText,
+                html: `<p>${replyText.replace(/\n/g, '<br>')}</p>`,
+              }),
+            });
+
+            const result = await res.json();
+            console.log('Reply response:', result);
+
+            if (result.success) {
+              alert('Reply sent successfully!');
+              setShowReplyBox(false);
+              setReplyText('');
+            } else {
+              alert('Failed to send reply.');
+            }
+          } catch (err) {
+            console.error('❌ Reply error:', err);
+            alert('Error sending reply.');
+          } finally {
+            setLoadingReply(false);
+          }
+        }}
+        className="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        disabled={loadingReply}
+      >
+        {loadingReply ? 'Sending...' : 'Send Reply'}
+      </button>
+    </div>
+  </div>
+)}
+
+              {/* Email Message Preview Logic */}
+              {(() => {
+                const html = selectedEmail.html_content || "";
+                const text = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ');
+                const words = text.trim().split(/\s+/).filter(Boolean);
+                const isLong = words.length > 250;
+                if (!isLong || isFullView || showFull) {
+                  return (
+                    <div
+                      className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all max-h-[60vh] overflow-y-auto custom-scrollbar-hide"
+                      style={{ boxShadow: '0 4px 24px 0 rgba(0,0,0,0.08)', margin: '0 auto', width: '100%' }}
+                      dangerouslySetInnerHTML={{ __html: html }}
+                    />
+                  );
+                }
+                const truncatedText = words.slice(0, 250).join(' ') + '...';
+                return (
+                  <>
+                    <div
+                      className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all max-h-[60vh] overflow-y-auto custom-scrollbar-hide"
+                      style={{ boxShadow: '0 4px 24px 0 rgba(0,0,0,0.08)', margin: '0 auto', width: '100%' }}
+                    >
+                      {truncatedText}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setShowFull(true)}
+                        className="mt-2 px-4 py-1 text-sm bg-blue-600 text-white rounded shadow hover:bg-blue-700 transition-all"
+                      >
+                        View Full Mail
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* If you want to show attachments */}
+              {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                <div className="mt-4 border-t pt-4 border-gray-200">
+                  <h3 className="font-semibold text-gray-800 mb-2">Attachments:</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedEmail.attachments.map((link, index) => (
+                      <a
+                        key={index}
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-blue-600 hover:underline bg-blue-50 px-3 py-1 rounded-full text-sm"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {link.split('/').pop()}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Loader Spinner Only (no background overlay) */}
+        {loading && !emailList.length && <TypewriterLoader />}
+      </div>
+    </div>
+  );
+}
+
+
+//
+import React, { useState, useEffect, useCallback } from 'react';
+// Assuming you have this interface defined somewhere
+interface Email {
+  id: string;
+  message_id: string; // Crucial for threading
+  sender: string;
+  subject: string;
+  message: string;
+  time: string;
+  starred: boolean;
+  unread: boolean;
+  type: string;
+  src: string;
+  from: string;
+  to: string;
+  date: string;
+  summary: string;
+  html_content: string;
+  attachments: string[];
+  // Add other fields you might use, like in_reply_to_id, thread_id, references_ids etc.
+  in_reply_to_id?: string | null;
+  thread_id?: string | null;
+  references_ids?: string[] | string | null; // From backend, it can be stringified JSON or array
+}
+
+// ... (other imports)
+
+const MailInboxPage: React.FC = () => {
+  const [emailList, setEmailList] = useState<Email[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [isFullView, setIsFullView] = useState<boolean>(false);
+  // NEW STATE: To store the full conversation thread
+  const [selectedConversation, setSelectedConversation] = useState<Email[] | null>(null);
+  const [conversationLoading, setConversationLoading] = useState<boolean>(false);
+  const [conversationError, setConversationError] = useState<string | null>(null);
+
+  // Your existing fetchEmails useCallback
+  const fetchEmails = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('cqtoken');
+
+      if (!token) {
+        setError("Authentication token not found. Please log in.");
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/inbox`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        credentials: 'omit',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 401) {
+          setError("Authentication failed. Please log in again.");
+          localStorage.removeItem('cqtoken'); // Fix: changed from 'accessToken' to 'cqtoken'
+        } else {
+          throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        }
+      }
+
+      const data: any[] = await response.json();
+
+      if (!Array.isArray(data)) {
+        throw new TypeError("API response is not an array. Received:" + JSON.stringify(data));
+      }
+
+      const mappedEmails: Email[] = data.map((email: any, index: number) => {
+        let parsedAttachments: string[] = [];
+        try {
+          if (typeof email.attachments === 'string' && email.attachments.trim().length > 0) {
+            parsedAttachments = JSON.parse(email.attachments);
+          }
+        } catch (parseError) {
+          parsedAttachments = [];
+        }
+
+        // Ensure these fields exist on the Email interface based on your backend
+        const referencesIds = typeof email.references_ids === 'string'
+            ? JSON.parse(email.references_ids)
+            : email.references_ids;
+
+        return {
+          id: email.id || email.message_id || `email-${index}`,
+          message_id: email.message_id,
+          sender: email.from || "Unknown Sender",
+          subject: email.subject || "(No Subject)",
+          message: email.summary || (email.html_content ? email.html_content.slice(0, 100) : "No message content."),
+          time: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
+          starred: email.is_starred || false,
+          unread: !email.is_read || true,
+          type: email.folder === 'INBOX' ? 'inbox' : 'other',
+          src: email.from_email?.toLowerCase().includes('google') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/800px-Google_%22G%22_logo.svg.png' :
+               email.from_email?.toLowerCase().includes('linkedin') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/LinkedIn_Logo.svg/800px-LinkedIn_Logo.svg.png' :
+               email.from_email?.toLowerCase().includes('facebook') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Facebook_f_logo_%282019%29.svg/800px-Facebook_f_logo_%282019%29.svg.png' :
+               email.from_email?.toLowerCase().includes('twitter') ? 'https://cdn.prod.website-files.com/5d66bdc65e51a0d114d15891/64cebdd90aef8ef8c749e848_X-EverythingApp-Logo-Twitter.jpg' :
+               email.from_email?.toLowerCase().includes('amazon') ? 'https://w7.pngwing.com/pngs/141/900/png-transparent-amazon-com-amazon-echo-amazon-music-the-everything-store-jeff-bezos-and-the-age-of-amazon-kindle-fire-black-friday-miscellaneous-text-logo.png' :
+               email.from_email?.toLowerCase().includes('netflix') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/800px-Netflix_2015_logo.svg.png' :
+               email.from_email?.toLowerCase().includes('spotify') ? 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRfVoqbXvQlq8MPVaqn3PorKrb1Ue6qvAWYBg&s' :
+               '/default-avatar.png',
+          from: email.from || email.from_email || "",
+          to: (email.to && Array.isArray(email.to)) ? email.to.map((t: any) => t.address).filter(Boolean).join(',') : (typeof email.to === 'string' ? email.to : ""),
+          date: email.date || "",
+          summary: email.summary || "",
+          html_content: email.html_content || "",
+          attachments: parsedAttachments,
+          in_reply_to_id: email.in_reply_to_id || null,
+          thread_id: email.thread_id || null,
+          references_ids: referencesIds,
+        };
+      });
+      setEmailList(mappedEmails);
+    } catch (e: any) {
+      console.error("Failed to fetch emails:", e);
+      setError(e.message || "Failed to load emails.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEmails();
+  }, [fetchEmails]);
+
+  // NEW: Function to handle email clicks and fetch the conversation thread
+  const handleEmailClick = useCallback(async (email: Email) => {
+    setSelectedEmail(email); // Still select the individual email for reference/highlighting
+    setIsFullView(true); // Or however you toggle your preview pane
+    setSelectedConversation(null); // Clear previous conversation
+    setConversationLoading(true);
+    setConversationError(null);
+
+    try {
+      const token = localStorage.getItem('cqtoken');
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
+
+      // Replace with your actual API endpoint for fetching threads
+      // Make sure your backend endpoint is configured to handle this path
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/thread/${email.message_id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        credentials: 'omit',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch conversation: ${response.status} - ${errorText}`);
+      }
+
+      const conversationData: Email[] = await response.json();
+      setSelectedConversation(conversationData);
+    } catch (e: any) {
+      console.error("Failed to fetch conversation:", e);
+      setConversationError(e.message || "Failed to load conversation.");
+      setSelectedConversation([]); // Set to empty array to indicate an error state or no conversation
+    } finally {
+      setConversationLoading(false);
+    }
+  }, []); // Dependencies for useCallback: None needed if token is read inside
+
+  // ... (rest of your component)
+
+  // Example of how you might render the email list and integrate handleEmailClick
+  // This part would be in your JSX where you list emails in the left pane
+  // (e.g., inside a `<div>` that maps over `emailList`)
+  return (
+    <div className="mail-inbox-container">
+      {/* Left Pane: Email List */}
+      <div className="email-list-pane">
+        {loading && <p>Loading emails...</p>}
+        {error && <p className="error">{error}</p>}
+        {!loading && !error && emailList.length === 0 && <p>No emails found.</p>}
+        {emailList.map((email) => (
+          <div
+            key={email.id}
+            className={`email-list-item ${selectedEmail?.id === email.id ? 'selected' : ''}`}
+            onClick={() => handleEmailClick(email)}
+            style={{ cursor: 'pointer', padding: '10px', borderBottom: '1px solid #eee' }}
+          >
+            <h3>{email.subject}</h3>
+            <p>From: {email.sender}</p>
+            <p>{email.summary}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Right Pane: Email Preview / Conversation View */}
+      <div className="email-preview-pane">
+        {!selectedEmail ? (
+          <p>Select an email to view its content.</p>
+        ) : (
+          <div>
+            {conversationLoading && <p>Loading conversation...</p>}
+            {conversationError && <p className="error">{conversationError}</p>}
+            {selectedConversation && selectedConversation.length > 0 ? (
+              // Iterate and display each email in the conversation
+              selectedConversation.map((mailInThread) => (
+                <div key={mailInThread.id} style={{ border: '1px solid #ccc', margin: '10px', padding: '10px' }}>
+                  <h2>Subject: {mailInThread.subject}</h2>
+                  <p>From: {mailInThread.from}</p>
+                  <p>To: {mailInThread.to}</p>
+                  <p>Date: {new Date(mailInThread.date).toLocaleString()}</p>
+                  {/* Render HTML content. Be cautious with dangerouslySetInnerHTML. */}
+                  <div dangerouslySetInnerHTML={{ __html: mailInThread.html_content }} />
+                  {/* You might want a "Reply" or "Forward" button here, which would
+                      then use `mailInThread.message_id` as the parent message ID. */}
+                </div>
+              ))
+            ) : (
+              // Fallback to displaying just the selected email if no conversation found or error
+              <div>
+                <h2>Subject: {selectedEmail.subject}</h2>
+                <p>From: {selectedEmail.from}</p>
+                <p>To: {selectedEmail.to}</p>
+                <p>Date: {new Date(selectedEmail.date).toLocaleString()}</p>
+                <div dangerouslySetInnerHTML={{ __html: selectedEmail.html_content }} />
+              </div>
+            )}
+
+            {/* You can still have reply/forward buttons that operate on the selected email
+                or the latest email in the conversation. */}
+            <button /* onClick={handleReply} */>Reply</button>
+            <button /* onClick={handleForward} */>Forward</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default MailInboxPage;
