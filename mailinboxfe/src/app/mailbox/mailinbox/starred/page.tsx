@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element */
 /* eslint-disable prefer-const */
 "use client";
 
@@ -12,13 +11,9 @@ import {
   Square,
   ArrowLeft,
   Reply,
-  Upload,
-  FileText,
-  Folder,
   ReplyAll,
   Forward,
   ShieldAlert,
-  ChevronDown,
   ArrowDownAZ,
   ArrowUpZA,
   RotateCcw,
@@ -26,7 +21,6 @@ import {
 import Image from "next/image";
 import { useSearch } from "../SearchContext";
 import TypewriterLoader from "../TypewriterLoader";
-import useRouter from "../useRouter";
 
 const initialEmails = [
   {
@@ -124,13 +118,12 @@ export default function StarredPage() {
   const { searchTerm } = useSearch();
   const [emailList, setEmailList] = useState<Email[]>(initialEmails);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
-  const [isFullView, setIsFullView] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [tooltipOpenId, setTooltipOpenId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<"latest" | "oldest">("latest");
   const [loading, setLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [blink, setBlink] = useState(false);
 
   const emailsPerPage = 10;
@@ -231,7 +224,6 @@ export default function StarredPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const router = useRouter();
 
   return (
     <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">

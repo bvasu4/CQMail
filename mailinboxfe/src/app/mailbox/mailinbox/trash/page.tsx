@@ -1,7 +1,7 @@
 /* eslint-disable prefer-const */
 "use client";
 
-import { useState,useEffect } from "react";
+import { useState } from "react";
 import {
   Star,
   StarOff,
@@ -24,6 +24,49 @@ import Image from "next/image";
 import { useSearch } from "../SearchContext";
 import TypewriterLoader from "../TypewriterLoader";
 
+const initialEmails = [
+  {
+    id: 1,
+    sender: "Amazon",
+    to: "you@example.com",
+    subject: "Order Cancelled",
+    message: "Your order #123456 has been cancelled and moved to trash.",
+    time: "09:00 AM",
+    starred: false,
+    unread: false,
+    type: "trash",
+    src: "https://w7.pngwing.com/pngs/141/900/png-transparent-amazon-com-amazon-echo-amazon-music-the-everything-store-jeff-bezos-and-the-age-of-amazon-kindle-fire-black-friday-miscellaneous-text-logo.png",
+    attachments: [],
+  },
+  {
+    id: 2,
+    sender: "You",
+    to: "bob@example.com",
+    subject: "Draft Deleted",
+    message: "This draft was deleted and is now in trash.",
+    time: "08:10 AM",
+    starred: false,
+    unread: false,
+    type: "trash",
+    src: "https://randomuser.me/api/portraits/men/3.jpg",
+    attachments: [
+      { name: "old_draft.docx", size: "120 KB", type: "doc" },
+    ],
+  },
+  {
+    id: 3,
+    sender: "LinkedIn",
+    to: "you@example.com",
+    subject: "Job Alert Deleted",
+    message: "A job alert email you deleted is now in trash.",
+    time: "07:30 AM",
+    starred: false,
+    unread: false,
+    type: "trash",
+    src: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/LinkedIn_Logo.svg/800px-LinkedIn_Logo.svg.png",
+    attachments: [],
+  },
+];
 
 type Attachment = {
   name: string;
@@ -48,7 +91,7 @@ type Email = {
 
 export default function TrashPage() {
   const { searchTerm } = useSearch();
-const [emailList, setEmailList] = useState<Email[]>([]);
+  const [emailList, setEmailList] = useState<Email[]>(initialEmails);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
@@ -56,49 +99,7 @@ const [emailList, setEmailList] = useState<Email[]>([]);
   const [loading, setLoading] = useState(false);
 
   const emailsPerPage = 10;
- useEffect(() => {
-  const fetchTrashEmails = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem("cqtoken");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-      });
 
-      if (!res.ok) throw new Error("Failed to fetch trash emails");
-
-      const data = await res.json();
-      const formattedEmails = data.map((email: any, index: number) => ({
-id: email.message_id || index + 1,
-
-        sender: email.from,
-        to: email.to,
-        subject: email.subject,
-        message: email.body,
-        time: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        starred: email.flags?.includes("\\Flagged") || false,
-        unread: !email.flags?.includes("\\Seen"),
-        type: "trash",
-        src: `https://ui-avatars.com/api/?name=${email.from}&background=random`,
-        attachments: email.attachments.map((filename: string) => ({
-          name: filename,
-          size: "N/A",
-          type: "file",
-        })),
-      }));
-
-      setEmailList(formattedEmails);
-    } catch (error) {
-      console.error("❌ Error fetching trash emails:", error);
-    }
-    setLoading(false);
-  };
-
-  fetchTrashEmails();
-}, []);
   const filteredEmails = emailList.filter(
     (email) =>
       email.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -175,49 +176,13 @@ id: email.message_id || index + 1,
     setSelectedIds([]);
   };
 
-//   const handleReload = () => {
-//     setLoading(true);
-//     setTimeout(() => {useEffect(() => {
-//   if (loading) return;
-//   setPage(1); // optional: reset to first page on reload
-// }, [emailList]);
-//       setLoading(false);
-//     }, 5000);
-//   };
-const handleReload = async () => {
-  setLoading(true);
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash`, {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('cqtoken')}`,
-      },
-    });
-    if (!res.ok) throw new Error('Failed to fetch trash');
-    const data = await res.json();
-    const formattedEmails = data.map((email: any, index: number) => ({
-      id: email.message_id || index + 1,
-      sender: email.from,
-      to: email.to,
-      subject: email.subject,
-      message: email.body,
-      time: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      starred: email.flags?.includes("\\Flagged") || false,
-      unread: !email.flags?.includes("\\Seen"),
-      type: "trash",
-      src: `https://ui-avatars.com/api/?name=${email.from}&background=random`,
-      attachments: email.attachments.map((filename: string) => ({
-        name: filename,
-        size: "N/A",
-        type: "file",
-      })),
-    }));
-    setEmailList(formattedEmails);
-  } catch (err) {
-    console.error('❌ Reload failed:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+  const handleReload = () => {
+    setLoading(true);
+    setTimeout(() => {
+      setEmailList([...initialEmails]);
+      setLoading(false);
+    }, 5000);
+  };
 
   return (
     <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">

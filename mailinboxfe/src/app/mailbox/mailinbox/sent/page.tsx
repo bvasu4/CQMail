@@ -1,7 +1,7 @@
 /* eslint-disable prefer-const */
 "use client";
-import axios from "axios";
-import { useState, useEffect } from "react";
+import { useEffect } from 'react';
+import { useState } from "react";
 import {
   Star,
   StarOff,
@@ -11,9 +11,7 @@ import {
   Square,
   ArrowLeft,
   Reply,
-  Upload,
   FileText,
-  Folder,
   ReplyAll,
   Forward,
   ShieldAlert,
@@ -25,7 +23,6 @@ import {
 import Image from "next/image";
 import { useSearch } from "../SearchContext";
 import TypewriterLoader from "../TypewriterLoader";
-import useRouter from "../useRouter";
 
 
 
@@ -41,15 +38,27 @@ type Email = {
   to: string;
   subject: string;
   message: string;
-  date:string;
   time: string;
   starred: boolean;
   unread: boolean;
   type: string;
   src: string;
+  html_content: string; // ✅ New field
   attachments: Attachment[];
-    showFull?: boolean; // ✅ Add this line
+  showFull?: boolean;
 };
+type SentEmailResponse = {
+  to?: string;
+  subject?: string;
+  body?: string;
+  date: string;
+  attachments?: {
+    filename: string;
+    size: number;
+    contentType: string;
+  }[];
+};
+
 
 export default function SentPage() {
   const { searchTerm } = useSearch();
@@ -70,10 +79,17 @@ const [emailList, setEmailList] = useState<Email[]>([]);
   );
 
   const sortedEmails = [...filteredEmails].sort((a, b) => {
-  return sortBy === "latest"
-    ? new Date(b.date).getTime() - new Date(a.date).getTime()
-    : new Date(a.date).getTime() - new Date(b.date).getTime();
-});
+    const parseTime = (t: string) => {
+      const [time, modifier] = t.split(" ");
+      let [hours, minutes] = time.split(":").map(Number);
+      if (modifier === "PM" && hours !== 12) hours += 12;
+      if (modifier === "AM" && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    };
+    return sortBy === "latest"
+      ? parseTime(b.time) - parseTime(a.time)
+      : parseTime(a.time) - parseTime(b.time);
+  });
 
   const paginatedEmails = sortedEmails.slice(
     (page - 1) * emailsPerPage,
@@ -99,6 +115,7 @@ const [emailList, setEmailList] = useState<Email[]>([]);
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
+
 
   const handleSelectAll = () => {
     if (allSelected) {
@@ -132,96 +149,57 @@ const [emailList, setEmailList] = useState<Email[]>([]);
   };
 
   const handleReload = () => {
-  setLoading(true);
-  const token = localStorage.getItem("cqtoken");
-
-  axios.get(`${process.env.NEXT_PUBLIC_API_HOST}/mail/sent`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  }).then((response) => {
-    const data = response.data;
-
-    const emails: Email[] = data.map((item: any, index: number) => ({
-      id: index + 1,
-      sender: "You",
-      to: item.to,
-      subject: item.subject,
-      message: item.body,
-   date: item.date, // Keep ISO string
-time: new Date(item.date).toLocaleTimeString([], {
-  hour: "2-digit",
-  minute: "2-digit",
-}),
-      starred: false,
-      unread: false,
-      type: "sent",
-      src: "https://randomuser.me/api/portraits/men/1.jpg",
-      attachments: (item.attachments || []).map((att: any) => ({
-        name: att.filename,
-        size: `${(att.size / 1024).toFixed(1)} KB`,
-        type: att.contentType?.split("/")?.[1] || "file",
-      })),
-    }));
-
-    setEmailList(emails);
-  }).catch((err) => {
-    console.error("❌ Error reloading emails:", err);
-  }).finally(() => {
-    setLoading(false);
-  });
-};
-
-useEffect(() => {
-  const fetchSentEmails = async () => {
     setLoading(true);
+    setTimeout(() => {
+      setEmailList([]);
+      setLoading(false);
+    }, 5000);
+  };
+
+  useEffect(() => {
+  const fetchSentEmails = async () => {
     try {
-      const token = localStorage.getItem("cqtoken");
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_HOST}/mail/sent`, {
+      const token = localStorage.getItem('cqtoken');
+      const res = await fetch('http://localhost:4000/mail/sent', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      const data = response.data;
+      const data = await res.json();
 
-      const emails: Email[] = data.map((item: any, index: number) => ({
-        id: index + 1,
-        sender: "You",
-        to: item.to,
-        subject: item.subject,
-        message: item.body,
-        time: new Date(item.date).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        starred: false,
-        unread: false,
-        type: "sent",
-        src: "https://randomuser.me/api/portraits/men/1.jpg",
-        attachments: (item.attachments || []).map((att: any) => ({
-          name: att.filename,
-          size: `${(att.size / 1024).toFixed(1)} KB`,
-          type: att.contentType?.split("/")?.[1] || "file",
-        })),
-      }));
+     const formattedEmails: Email[] = (data as SentEmailResponse[]).map((email, index) => ({
+  id: index + 1,
+  sender: 'You',
+  to: email.to || '',
+  subject: email.subject || '',
+  message: email.body || '',
+  html_content: email.body || '',
+  time: new Date(email.date).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  }),
+  starred: false,
+  unread: false,
+  type: 'sent',
+  src: 'https://randomuser.me/api/portraits/men/1.jpg',
+  attachments: (email.attachments || []).map((att) => ({
+    name: att.filename,
+    size: `${Math.ceil(att.size / 1024)} KB`,
+    type: att.contentType,
+  })),
+}));
 
-      setEmailList(emails);
-    } catch (error) {
-      console.error("❌ Error fetching sent emails:", error);
-    } finally {
-      setLoading(false);
+
+      setEmailList(formattedEmails);
+    } catch (err) {
+      console.error('Failed to fetch sent emails', err);
     }
   };
 
   fetchSentEmails();
-}, []);
-function stripOuterParagraphTags(html: string): string {
-  return html.replace(/^<p>(.*?)<\/p>$/i, '$1');
-}
-function stripHtmlTags(html: string): string {
-  return html.replace(/<[^>]*>?/gm, '');
-}
+}, []); 
+
   return (
     <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">
       <div className={`bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col ${selectedEmail ? 'md:flex-row' : ''} overflow-hidden transition-all duration-300`}>
@@ -312,18 +290,19 @@ function stripHtmlTags(html: string): string {
                 <span className="cursor-pointer underline decoration-dotted decoration-1">
                   {email.to}
                 </span>
-              </div>
+              </div>s
               <div className="w-2/4 truncate">
                 <div className="text-sm text-black font-medium flex items-center gap-2">
                   {email.subject}
                   {email.attachments && email.attachments.length > 0 && (
-                    <Paperclip className="w-4 h-4 text-gray-400 inline-block" title="Has attachments" />
+<span title="Has attachments">
+  <Paperclip className="w-4 h-4 text-gray-400 inline-block" />
+</span>
                   )}
                 </div>
                 <div className="text-xs text-gray-500">
-  {stripHtmlTags(email.message).slice(0, 50)}...
-</div>
-
+                  {email.message.slice(0, 50)}...
+                </div>
               </div>
               <div className="w-1/4 text-right text-sm text-gray-400">
                 {email.time}
@@ -420,49 +399,70 @@ function stripHtmlTags(html: string): string {
                   </span>
                 </button>
               </div>
-              <div className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all">
-                {(() => {
-                  const wordCount = selectedEmail.message.split(/\s+/).length;
-                  if (wordCount > 250 && !selectedEmail.showFull) {
-                    const preview = selectedEmail.message.split(/\s+/).slice(0, 250).join(' ');
-                    return <>
-                      {preview}...
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => setEmailList(list => list.map(e => e.id === selectedEmail.id ? { ...e, showFull: true } : e))}
-                          className="mt-2 text-sm text-blue-600 hover:underline"
-                        >
-                          View Full Mail
-                        </button>
-                      </div>
-                    </>;
-                  } else {
-                    return (
-  <div
-    dangerouslySetInnerHTML={{
-      __html: stripOuterParagraphTags(selectedEmail.message),
-    }}
-  />
-);
-                  }
-                })()}
-                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
-                  <div className="mt-4">
-                    <div className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                      <Paperclip className="w-4 h-4 text-gray-500" /> Attachments
-                    </div>
-                    <div className="flex flex-wrap gap-4">
-                      {selectedEmail.attachments.map((att, idx) => (
-                        <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
-                          <FileText className="w-4 h-4 text-blue-500" />
-                          <span className="font-medium text-gray-800">{att.name}</span>
-                          <span className="text-xs text-gray-500">({att.size})</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+             <div className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed transition-all">
+{(() => {
+  const html = selectedEmail.html_content?.trim();
+  const text = selectedEmail.message?.trim();
+  const rawContent = html || text || '';
+
+  const textOnly = rawContent.replace(/<[^>]*>/g, '').trim();
+  const wordCount = textOnly.split(/\s+/).filter(Boolean).length;
+  const showFull = emailList.find(e => e.id === selectedEmail.id)?.showFull;
+
+  if ((textOnly.length === 0 || wordCount === 0) && !showFull) {
+    return <div className="italic text-gray-500">No content available</div>;
+  }
+
+  if (wordCount > 250 && !showFull) {
+    const previewText = textOnly.split(/\s+/).slice(0, 250).join(' ');
+    return (
+      <>
+        <div>{previewText}...</div>
+        <div className="flex justify-end">
+          <button
+            onClick={() =>
+              setEmailList(list =>
+                list.map(e =>
+                  e.id === selectedEmail.id ? { ...e, showFull: true } : e
+                )
+              )
+            }
+            className="mt-2 text-sm text-blue-600 hover:underline"
+          >
+            View Full Mail
+          </button>
+        </div>
+      </>
+    );
+
+    } else {
+      return (
+        <div dangerouslySetInnerHTML={{ __html: rawContent }} />
+      );
+    }
+  })()}
+
+  {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+    <div className="mt-4">
+      <div className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+        <Paperclip className="w-4 h-4 text-gray-500" /> Attachments
+      </div>
+      <div className="flex flex-wrap gap-4">
+        {selectedEmail.attachments.map((att, idx) => (
+          <div
+            key={idx}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200"
+          >
+            <FileText className="w-4 h-4 text-blue-500" />
+            <span className="font-medium text-gray-800">{att.name}</span>
+            <span className="text-xs text-gray-500">({att.size})</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )}
+</div>
+
             </div>
           </div>
         )}

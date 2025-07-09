@@ -1,7 +1,7 @@
 /* eslint-disable prefer-const */
 "use client";
 
-import { useState } from "react";
+import { useState ,useEffect} from "react";
 import {
   Star,
   StarOff,
@@ -24,51 +24,7 @@ import Image from "next/image";
 import { useSearch } from "../SearchContext";
 import TypewriterLoader from "../TypewriterLoader";
 
-const initialEmails = [
-  {
-    id: 1,
-    sender: "You",
-    to: "bob@example.com",
-    subject: "Draft: Project Plan",
-    message: "Hi Bob, Here is the initial draft of the project plan. Please review and let me know your thoughts. Regards, You",
-    time: "10:00 AM",
-    starred: false,
-    unread: true,
-    type: "draft",
-    src: "https://randomuser.me/api/portraits/men/2.jpg",
-    attachments: [
-      { name: "plan.docx", size: "150 KB", type: "doc" },
-    ],
-  },
-  {
-    id: 2,
-    sender: "You",
-    to: "carol@example.com",
-    subject: "Draft: Budget Proposal",
-    message: "Hi Carol, Please find the draft budget proposal attached. Let me know if you have any suggestions.",
-    time: "08:30 AM",
-    starred: true,
-    unread: true,
-    type: "draft",
-    src: "https://randomuser.me/api/portraits/men/2.jpg",
-    attachments: [
-      { name: "budget.xlsx", size: "80 KB", type: "xls" },
-    ],
-  },
-  {
-    id: 3,
-    sender: "You",
-    to: "",
-    subject: "Draft: Untitled",
-    message: "This is an empty draft. You can start writing your email here.",
-    time: "07:00 AM",
-    starred: false,
-    unread: true,
-    type: "draft",
-    src: "https://randomuser.me/api/portraits/men/2.jpg",
-    attachments: [],
-  },
-];
+
 
 type Attachment = {
   name: string;
@@ -90,10 +46,20 @@ type Email = {
   attachments: Attachment[];
   showFull?: boolean;
 };
-
+type DraftEmailResponse = {
+  to?: string;
+  subject?: string;
+  body?: string;
+  date: string;
+  attachments?: {
+    filename: string;
+    size: number;
+    contentType: string;
+  }[];
+};
 export default function DraftsPage() {
   const { searchTerm } = useSearch();
-  const [emailList, setEmailList] = useState<Email[]>(initialEmails);
+const [emailList, setEmailList] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
@@ -178,14 +144,95 @@ export default function DraftsPage() {
     setSelectedIds([]);
   };
 
-  const handleReload = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setEmailList([...initialEmails]);
-      setLoading(false);
-    }, 5000);
+const handleReload = () => {
+  setLoading(true);
+  setTimeout(() => {
+    // Reload from backend instead of resetting to initial
+    const fetchDrafts = async () => {
+      try {
+        const token = localStorage.getItem("cqtoken");
+        const response = await fetch("http://localhost:4000/mail/drafts", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await response.json();
+
+const formattedEmails: Email[] = (data as DraftEmailResponse[]).map((email, index) => ({
+  id: index + 1,
+  sender: "You",
+  to: email.to || "",
+  subject: email.subject || "Untitled Draft",
+  message: email.body || "",
+  time: new Date(email.date).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  }),
+  starred: false,
+  unread: true,
+  type: "draft",
+  src: "https://randomuser.me/api/portraits/men/2.jpg",
+  attachments: (email.attachments || []).map((att) => ({
+    name: att.filename,
+    size: `${Math.ceil(att.size / 1024)} KB`,
+    type: att.contentType,
+  })),
+}));
+
+        setEmailList(formattedEmails);
+      } catch (err) {
+        console.error("Failed to reload drafts", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDrafts();
+  }, 500);
+};
+
+useEffect(() => {
+  const fetchDrafts = async () => {
+    try {
+      const token = localStorage.getItem("cqtoken");
+      const response = await fetch("http://localhost:4000/mail/drafts", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+    const formattedEmails: Email[] = (data as DraftEmailResponse[]).map((email, index) => ({
+  id: index + 1,
+  sender: "You",
+  to: email.to || "",
+  subject: email.subject || "Untitled Draft",
+  message: email.body || "",
+  time: new Date(email.date).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  }),
+  starred: false,
+  unread: true,
+  type: "draft",
+  src: "https://randomuser.me/api/portraits/men/2.jpg",
+  attachments: (email.attachments || []).map((att) => ({
+    name: att.filename,
+    size: `${Math.ceil(att.size / 1024)} KB`,
+    type: att.contentType,
+  })),
+}));
+
+      setEmailList(formattedEmails);
+    } catch (err) {
+      console.error("Failed to fetch drafts", err);
+    }
   };
 
+  fetchDrafts();
+}, []);
   return (
     <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">
       <div className={`bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col ${selectedEmail ? 'md:flex-row' : ''} overflow-hidden transition-all duration-300`}>

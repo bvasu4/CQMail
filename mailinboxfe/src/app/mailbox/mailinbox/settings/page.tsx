@@ -252,7 +252,7 @@ export default function SettingsPage() {
       case "Appearance":
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-blue-800 mb-4 flex items-center"><FaPalette className="mr-2" />Theme & Appearance</h2>
+            <h2 className="text-2xl font-bold text-blue-800 mb-4 flex items-center"><span style={{ marginRight: '0.5rem', display: 'inline-flex', alignItems: 'center' }}><FaPalette {...iconProps} /></span>Theme & Appearance</h2>
             <div className="bg-white rounded-xl shadow p-6 flex flex-col md:flex-row gap-8 items-center">
               <div className="flex flex-col gap-4 w-full md:w-1/2">
                 <label className="font-semibold text-blue-700">Theme</label>

@@ -1,7 +1,7 @@
 // MailInboxPage.tsx
 /* eslint-disable prefer-const */
 "use client";
-import axios from 'axios';
+
 import { useState, useEffect, useCallback } from "react";
 import {
   Star,
@@ -26,7 +26,7 @@ import {
 import Image from "next/image";
 import { useSearch } from "./SearchContext";
 import TypewriterLoader from "./TypewriterLoader"; // Make sure path is correct
-import useRouter from "./useRouter"; // Make sure path is correct
+// import useRouter from "./useRouter"; // Make sure path is correct
 
 // Define the Email type based on your backend's EmailMessage structure
 type Email = {
@@ -50,7 +50,7 @@ type Email = {
 
 
 export default function MailInboxPage() {
-  const { searchTerm } = useSearch();
+  const { searchTerm, showSidebar } = useSearch();
   const [emailList, setEmailList] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [isFullView, setIsFullView] = useState(false);
@@ -62,18 +62,9 @@ export default function MailInboxPage() {
   const [sortBy, setSortBy] = useState<"latest" | "oldest">("latest");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-const [showReplyBox, setShowReplyBox] = useState(false);
-const [replyText, setReplyText] = useState('');
-const [replyHtml, setReplyHtml] = useState('');
-const [replySubject, setReplySubject] = useState('');
-const [loadingReply, setLoadingReply] = useState(false);
+
   const [blink, setBlink] = useState(false);
-const [showForwardBox, setShowForwardBox] = useState(false);
-const [forwardTo, setForwardTo] = useState('');
-const [forwardSubject, setForwardSubject] = useState('');
-const [forwardText, setForwardText] = useState('');
-const [loadingForward, setLoadingForward] = useState(false);
-  const [showFull, setShowFull] = useState(false); // <-- Add this at the top level
+
   const emailsPerPage = 5;
 
   const fetchEmails = useCallback(async () => {
@@ -88,7 +79,7 @@ const [loadingForward, setLoadingForward] = useState(false);
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/inbox`, {
+      const response = await fetch("http://localhost:4000/mail/inbox", {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -112,7 +103,7 @@ const [loadingForward, setLoadingForward] = useState(false);
         }
       }
 
-      const data: any[] = await response.json();
+      const data = await response.json();
 
       console.log('Parsed API Data:', data);
 
@@ -120,47 +111,99 @@ const [loadingForward, setLoadingForward] = useState(false);
         throw new TypeError("API response is not an array. Received:" + JSON.stringify(data));
       }
 
-      const mappedEmails: Email[] = data.map((email: any, index: number) => {
+      const mappedEmails: Email[] = (data as Array<Record<string, unknown>>).map((email, index) => {
         let parsedAttachments: string[] = [];
         try {
-          if (typeof email.attachments === 'string' && email.attachments.trim().length > 0) {
-            parsedAttachments = JSON.parse(email.attachments);
+          if (typeof (email as Record<string, unknown>).attachments === 'string' && ((email as Record<string, unknown>).attachments as string).trim().length > 0) {
+            parsedAttachments = JSON.parse((email as Record<string, unknown>).attachments as string);
           }
         } catch (parseError) {
+          console.warn(`Could not parse attachments for email ID ${(email as Record<string, unknown>).id || (email as Record<string, unknown>).message_id}:`, (email as Record<string, unknown>).attachments, parseError);
           parsedAttachments = [];
         }
 
-        // DO NOT truncate html_content here! Always keep the full message.
+        const plainTextContent = ((email as Record<string, unknown>).html_content || "").toString().replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+        const previewText = (email as Record<string, unknown>).summary?.toString() || plainTextContent;
+
+        // Ensure correct types for all fields
+        const idRaw = (email as Record<string, unknown>).id ?? (email as Record<string, unknown>).message_id ?? index;
+        const id = typeof idRaw === "number"
+          ? idRaw
+          : typeof idRaw === "string" && !isNaN(Number(idRaw))
+            ? Number(idRaw)
+            : index;
+
+        const message_id = (email as Record<string, unknown>).message_id?.toString() ?? `email-${index}`;
+        const sender = (email as Record<string, unknown>).from_email?.toString()
+          ?? (email as Record<string, unknown>).from?.toString()
+          ?? "Unknown Sender";
+        const subject = (email as Record<string, unknown>).subject?.toString() ?? "(No Subject)";
+        const message = previewText.length > 100 ? previewText.substring(0, 97) + "..." : previewText;
+        const dateValue = (email as Record<string, unknown>).date;
+        const date = dateValue instanceof Date
+          ? dateValue
+          : typeof dateValue === "string" && dateValue
+            ? new Date(dateValue)
+            : "";
+        const time = date instanceof Date && !isNaN(date.getTime())
+          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+          : "";
+        const starred = !!(email as Record<string, unknown>).is_starred;
+        const unread = typeof (email as Record<string, unknown>).is_read === "boolean"
+          ? !(email as Record<string, unknown>).is_read
+          : true;
+        const type = (email as Record<string, unknown>).folder === 'INBOX' ? 'inbox' : 'other';
+        const from = (email as Record<string, unknown>).from?.toString()
+          ?? (email as Record<string, unknown>).from_email?.toString()
+          ?? "";
+        let to: string = "";
+        if (Array.isArray((email as Record<string, unknown>).to)) {
+          to = ((email as Record<string, unknown>).to as Array<{ address?: unknown }>)
+            .map((t) => typeof t.address === 'string' ? t.address : "")
+            .filter(Boolean)
+            .join(',');
+        } else if (typeof (email as Record<string, unknown>).to === 'string') {
+          to = (email as Record<string, unknown>).to as string;
+        } else {
+          to = "";
+        }
+        const summary = (email as Record<string, unknown>).summary?.toString() ?? "";
+        const html_content = (email as Record<string, unknown>).html_content?.toString() ?? "";
+
+        const fromEmail = (email as Record<string, unknown>).from_email?.toString() ?? "";
+        const src =
+          fromEmail.toLowerCase().includes('google') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/800px-Google_%22G%22_logo.svg.png' :
+          fromEmail.toLowerCase().includes('linkedin') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/LinkedIn_Logo.svg/800px-LinkedIn_Logo.svg.png' :
+          fromEmail.toLowerCase().includes('facebook') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Facebook_f_logo_%282019%29.svg/800px-Facebook_f_logo_%282019%29.svg.png' :
+          fromEmail.toLowerCase().includes('twitter') ? 'https://cdn.prod.website-files.com/5d66bdc65e51a0d114d15891/64cebdd90aef8ef8c749e848_X-EverythingApp-Logo-Twitter.jpg' :
+          fromEmail.toLowerCase().includes('amazon') ? 'https://w7.pngwing.com/pngs/141/900/png-transparent-amazon-com-amazon-echo-amazon-music-the-everything-store-jeff-bezos-and-the-age-of-amazon-kindle-fire-black-friday-miscellaneous-text-logo.png' :
+          fromEmail.toLowerCase().includes('netflix') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/800px-Netflix_2015_logo.svg.png' :
+          fromEmail.toLowerCase().includes('spotify') ? 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRfVoqbXvQlq8MPVaqn3PorKrb1Ue6qvAWYBg&s' :
+          '/default-avatar.png';
+
         return {
-          id: email.id || email.message_id || `email-${index}`,
-          message_id: email.message_id,
-          sender: email.from || "Unknown Sender",
-          subject: email.subject || "(No Subject)",
-          message: email.summary || (email.html_content ? email.html_content.slice(0, 100) : "No message content."),
-          time: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
-          starred: email.is_starred || false,
-          unread: !email.is_read || true,
-          type: email.folder === 'INBOX' ? 'inbox' : 'other',
-          src: email.from_email?.toLowerCase().includes('google') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/800px-Google_%22G%22_logo.svg.png' :
-               email.from_email?.toLowerCase().includes('linkedin') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/LinkedIn_Logo.svg/800px-LinkedIn_Logo.svg.png' :
-               email.from_email?.toLowerCase().includes('facebook') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Facebook_f_logo_%282019%29.svg/800px-Facebook_f_logo_%282019%29.svg.png' :
-               email.from_email?.toLowerCase().includes('twitter') ? 'https://cdn.prod.website-files.com/5d66bdc65e51a0d114d15891/64cebdd90aef8ef8c749e848_X-EverythingApp-Logo-Twitter.jpg' :
-               email.from_email?.toLowerCase().includes('amazon') ? 'https://w7.pngwing.com/pngs/141/900/png-transparent-amazon-com-amazon-echo-amazon-music-the-everything-store-jeff-bezos-and-the-age-of-amazon-kindle-fire-black-friday-miscellaneous-text-logo.png' :
-               email.from_email?.toLowerCase().includes('netflix') ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/800px-Netflix_2015_logo.svg.png' :
-               email.from_email?.toLowerCase().includes('spotify') ? 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRfVoqbXvQlq8MPVaqn3PorKrb1Ue6qvAWYBg&s' :
-               '/default-avatar.png',
-          from: email.from || email.from_email || "",
-          to: (email.to && Array.isArray(email.to)) ? email.to.map((t: any) => t.address).filter(Boolean).join(',') : (typeof email.to === 'string' ? email.to : ""),
-          date: email.date || "",
-          summary: email.summary || "",
-          html_content: email.html_content || "", // Always keep full content
+          id,
+          message_id,
+          sender,
+          subject,
+          message,
+          time,
+          starred,
+          unread,
+          type,
+          src,
+          from,
+          to,
+          date,
+          summary,
+          html_content,
           attachments: parsedAttachments,
         };
       });
       setEmailList(mappedEmails);
-    } catch (e: any) {
+    } catch (e) {
       console.error("Failed to fetch emails:", e);
-      setError(e.message || "Failed to load emails.");
+      setError(e instanceof Error ? e.message : "Failed to load emails.");
     } finally {
       setLoading(false);
     }
@@ -256,72 +299,12 @@ const [loadingForward, setLoadingForward] = useState(false);
     );
     setSelectedIds([]);
   };
-  
-const handleBulkDelete = async () => {
-  const token = localStorage.getItem('cqtoken'); // 🔐 Get token from localStorage
-
-  for (const id of selectedIds) {
-    const email = emailList.find((e) => e.id === id);
-    if (!email?.message_id) continue;
-
-    const encoded = encodeURIComponent(email.message_id);
-
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash/${encoded}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`, // 🔐 Add token here
-        },
-      });
-
-      const data = await res.json();
-
-      if (!data.success) {
-        console.warn(`❌ Failed to trash ${email.message_id}: ${data.message}`);
-      }
-    } catch (err) {
-      console.error(`❌ Error trashing ${email.message_id}:`, err);
-    }
-  }
-
-  // ✅ Remove from UI after processing
-  setEmailList((prev) => prev.filter((email) => !selectedIds.includes(email.id)));
-  setSelectedIds([]);
-};
-const handleDelete = async (ids: number[]) => {
-  const token = localStorage.getItem('cqtoken');
-
-  for (const id of ids) {
-    const email = emailList.find((e) => e.id === id);
-    if (!email?.message_id) continue;
-
-    const encoded = encodeURIComponent(email.message_id);
-
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/trash/${encoded}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (!data.success) {
-        console.warn(`❌ Failed to trash ${email.message_id}: ${data.message}`);
-      }
-    } catch (err) {
-      console.error(`❌ Error trashing ${email.message_id}:`, err);
-    }
-  }
-
-  // Remove from UI
-  setEmailList((prev) => prev.filter((email) => !ids.includes(email.id)));
-};
-
-
+  const handleBulkDelete = () => {
+    setEmailList((prev) =>
+      prev.filter((email) => !selectedIds.includes(email.id))
+    );
+    setSelectedIds([]);
+  };
 
   const handleMoveToFolder = () => {
     alert("Move to folder functionality is not implemented yet.");
@@ -339,11 +322,9 @@ const handleDelete = async (ids: number[]) => {
   const handleEmailClick = (email: Email) => {
     setSelectedEmail(email);
     setIsFullView(false);
-    setShowFull(false);
     if (email.unread) {
-      setEmailList(prev => prev.map(e => e.id === email.id ? { ...e, unread: false } : e));
+        setEmailList(prev => prev.map(e => e.id === email.id ? { ...e, unread: false } : e));
     }
-    // Remove fetchConversationThread(email.message_id);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -365,24 +346,40 @@ const handleDelete = async (ids: number[]) => {
     return () => clearInterval(interval);
   }, []);
 
-  const router = useRouter();
+  // const router = useRouter();
 
   return (
-    <div className="h-[calc(100vh-64px)] p-4 dark:bg-gray-900 font-sans transition-colors duration-300">
+    <div
+      className={`h-[calc(100vh-64px)] ${showSidebar ? 'max-w-[58rem]' : 'max-w-[72rem]'}  p-2 dark:bg-gray-900 font-sans transition-all duration-300`}
+      style={{
+        maxWidth: showSidebar ? '58rem' : '70rem',
+        transition: 'max-width 0.3s',
+        overflowX: 'hidden', // Prevent horizontal scroll
+        overflowY: 'hidden', // Prevent vertical scroll on outer container
+      }}
+    >
       <div
-        className={`bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col md:flex-row overflow-hidden transition ${
+        className={`bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col md:flex-row transition ${
           blink ? "ring-4 ring-blue-400" : ""
         }`}
+        style={{
+          overflow: 'hidden', // Hide scrollbars on the card
+        }}
       >
         {/* Email List */}
         <div
-          className={`${
+          className={`$${
             selectedEmail && !isFullView
-              ? "hidden md:block md:w-1/2"
+              ? "hidden md:block md:w-2/5"
               : selectedEmail && isFullView
               ? "hidden"
               : "w-full"
-          } overflow-y-auto bg-white`}
+          } bg-white`}
+          style={{
+            overflowY: 'auto', // Only vertical scroll inside the card
+            overflowX: 'hidden', // No horizontal scroll inside the card
+            maxHeight: '100%',
+          }}
         >
           {/* Top Bar */}
           <div className="flex items-center justify-between px-4 py-2 sticky top-0 bg-white border-b border-blue-700 z-10">
@@ -570,18 +567,10 @@ const handleDelete = async (ids: number[]) => {
                   <StarOff className="w-4 h-4" />
                 )}
               </div>
-              <div className="w-1/4 flex items-center gap-2 truncate text-black relative">
-                <Image
-                  src={email.src}
-                  alt={email.sender}
-                  width={28}
-                  height={28}
-                  className="rounded-full object-cover border border-gray-200 cursor-pointer"
-                  onMouseEnter={() => setTooltipOpenId(email.id)}
-                  onMouseLeave={() => setTooltipOpenId(null)}
-                />
+              <div className="w-1/4 flex min-w-0 items-center gap-2 text-black relative">
+                {/* Removed sender image */}
                 <span
-                  className="cursor-pointer underline decoration-dotted decoration-1"
+                  className="truncate cursor-pointer underline decoration-dotted decoration-1"
                   onMouseEnter={() => setTooltipOpenId(email.id)}
                   onMouseLeave={() => setTooltipOpenId(null)}
                 >
@@ -604,11 +593,11 @@ const handleDelete = async (ids: number[]) => {
                   </div>
                 )}
               </div>
-              <div className="w-2/4 truncate">
-                <div className="text-sm text-black font-medium">
+              <div className="w-2/4 min-w-0">
+                <div className="truncate text-sm text-black font-medium">
                   {email.subject}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="truncate text-xs text-gray-500">
                   {email.message}
                 </div>
               </div>
@@ -666,13 +655,11 @@ const handleDelete = async (ids: number[]) => {
             </button>
           </div>
         </div>
-
-        {/* Email Preview */}
         {selectedEmail && (
           <div
-            className={`$${isFullView ? "w-full" : "w-full md:w-9/12"} bg-gradient-to-br from-gray-50 to-gray-100 p-6 overflow-y-auto`}
+            className={`w-full${!isFullView ? ' md:w-3/5' : ''} bg-gradient-to-br from-gray-50 to-gray-100 p-6 overflow-y-auto flex flex-col`}
           >
-            <div className="bg-white/70 h-full backdrop-blur-md border border-gray-300 rounded-2xl shadow-2xl p-6 space-y-6 transition-all duration-300">
+            <div className="bg-white/70 backdrop-blur-md border border-gray-300 rounded-2xl shadow-2xl p-6 space-y-6 transition-all duration-300">
               {/* Header */}
               <div className="flex justify-between items-start">
                 <div>
@@ -681,16 +668,16 @@ const handleDelete = async (ids: number[]) => {
                     className="text-gray-600 hover:text-blue-600 flex items-center gap-2 text-sm font-semibold"
                   >
                     <ArrowLeft className="w-4 h-4" />
-                    Back to Inbox 
+                    Back to Inbox
                   </button>
                   <h1 className="mt-4 text-2xl font-bold text-gray-800">
                     {selectedEmail.subject}
                   </h1>
                   <p className="text-sm text-gray-600 mt-2">
-                    <span className="font-semibold text-gray-700">From:</span>{' '}
+                    <span className="font-semibold text-gray-700">From:</span>{" "}
                     {selectedEmail.sender}
                     <br />
-                    <span className="font-semibold text-gray-700">To:</span>{' '}
+                    <span className="font-semibold text-gray-700">To:</span>{" "}
                     {selectedEmail.to}
                   </p>
                 </div>
@@ -713,12 +700,9 @@ const handleDelete = async (ids: number[]) => {
                 </button>
                 <button className="text-blue-500 hover:text-blue-600 flex items-center gap-2 group">
                   <Trash2 className="w-5 h-5" />
-          <span
-  onClick={() => handleDelete([emailList.find(e => e.id === selectedEmail.id)?.id || 0])}
-  className="text-red-600 cursor-pointer group-hover:underline"
->
-  Delete
-        </span>
+                  <span className="hidden md:inline group-hover:underline">
+                    Delete
+                  </span>
                 </button>
                 <button className="text-orange-500 hover:text-orange-600 flex items-center gap-2 group">
                   <ShieldAlert className="w-5 h-5" />
@@ -726,228 +710,69 @@ const handleDelete = async (ids: number[]) => {
                     Spam
                   </span>
                 </button>
-                {/* Reply Button */}
-                <button
-  className="text-blue-500 hover:text-blue-600 flex items-center gap-2 group"
-  onClick={() => {
-    setReplySubject(
-      selectedEmail.subject.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`
-    );
-    setShowReplyBox(true);
-  }}
->
-  <Reply className="w-5 h-5" />
-  <span className="hidden md:inline group-hover:underline">Reply</span>
-</button>
-
+                <button className="text-blue-500 hover:text-blue-600 flex items-center gap-2 group">
+                  <Reply className="w-5 h-5" />
+                  <span className="hidden md:inline group-hover:underline">
+                    Reply
+                  </span>
+                </button>
                 <button className="text-blue-600 hover:text-blue-700 flex items-center gap-2 group">
                   <ReplyAll className="w-5 h-5" />
                   <span className="hidden md:inline group-hover:underline">
                     Reply All
                   </span>
                 </button>
-                {/* Forward Button */}
-                <button
-  className="text-green-500 hover:text-green-600 flex items-center gap-2 group"
-  onClick={() => {
-    setForwardSubject(`Fwd: ${selectedEmail.subject}`);
-    setShowForwardBox(true);
-  }}
->
-  <Forward className="w-5 h-5" />
-  <span className="hidden md:inline group-hover:underline">Forward</span>
-</button>
-
-{showForwardBox && (
-  <div className="mt-6 p-4 border rounded-md bg-white shadow-md space-y-4">
-    <input
-      type="email"
-      value={forwardTo}
-      onChange={(e) => setForwardTo(e.target.value)}
-      className="w-full p-2 border rounded text-sm"
-      placeholder="Recipient email"
-    />
-    <input
-      type="text"
-      value={forwardSubject}
-      onChange={(e) => setForwardSubject(e.target.value)}
-      className="w-full p-2 border rounded text-sm"
-      placeholder="Subject"
-    />
-    <textarea
-      rows={6}
-      value={forwardText}
-      onChange={(e) => setForwardText(e.target.value)}
-      className="w-full p-2 border rounded text-sm"
-      placeholder="Your message"
-    ></textarea>
-    <div className="flex justify-end gap-2">
-      <button
-        onClick={() => setShowForwardBox(false)}
-        className="text-sm text-gray-600 hover:underline"
-      >
-        Cancel
-      </button>
-      <button
-        onClick={async () => {
-          const token = localStorage.getItem('cqtoken');
-          if (!token) {
-            alert('You must be logged in to forward.');
-            return;
-          }
-
-          setLoadingForward(true);
-          try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}
-              /mail/forward/${encodeURIComponent(selectedEmail.message_id)}`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                to: forwardTo,
-                subject: forwardSubject,
-                text: forwardText,
-                html: `<p>${forwardText.replace(/\n/g, '<br>')}</p>`,
-              }),
-            });
-
-            const result = await res.json();
-            console.log('Forward result:', result);
-
-            if (result.success) {
-              alert('Message forwarded successfully!');
-              setShowForwardBox(false);
-              setForwardTo('');
-              setForwardText('');
-            } else {
-              alert('Failed to forward message.');
-            }
-          } catch (err) {
-            console.error('Forward error:', err);
-            alert('Error forwarding message.');
-          } finally {
-            setLoadingForward(false);
-          }
-        }}
-        className="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-        disabled={loadingForward}
-      >
-        {loadingForward ? 'Sending...' : 'Forward'}
-      </button>
-    </div>
-  </div>
-)}
+                <button className="text-green-500 hover:text-green-600 flex items-center gap-2 group">
+                  <Forward className="w-5 h-5" />
+                  <span className="hidden md:inline group-hover:underline">
+                    Forward
+                  </span>
+                </button>
               </div>
-{showReplyBox && (
-  <div className="mt-6 p-4 border rounded-md bg-white shadow-md space-y-4">
-    <input
-      type="text"
-      value={replySubject}
-      onChange={(e) => setReplySubject(e.target.value)}
-      className="w-full p-2 border rounded text-sm"
-      placeholder="Subject"
-    />
-    <textarea
-      rows={6}
-      value={replyText}
-      onChange={(e) => setReplyText(e.target.value)}
-      className="w-full p-2 border rounded text-sm"
-      placeholder="Your reply here..."
-    ></textarea>
-    <div className="flex justify-end gap-2">
-      <button
-        onClick={() => setShowReplyBox(false)}
-        className="text-sm text-gray-600 hover:underline"
-      >
-        Cancel
-      </button>
-      <button
-        onClick={async () => {
-          setLoadingReply(true);
-          const token = localStorage.getItem('cqtoken'); // ✅ Make sure this matches your login setup
 
-          if (!token) {
-            alert('You must be logged in to reply.');
-            setLoadingReply(false);
-            return;
-          }
+              {/* Email Message */}
+              <div
+                className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all"
+                dangerouslySetInnerHTML={{
+                  __html: (() => {
+                    let plainText = selectedEmail.summary && selectedEmail.summary.trim().length > 0
+                      ? selectedEmail.summary.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim()
+                      : (selectedEmail.html_content || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+                    const words = plainText.split(/\s+/).filter(Boolean);
+                    if (!isFullView && words.length > 250) {
+                      return words.slice(0, 250).join(' ') + '...';
+                    }
+                    return plainText;
+                  })(),
+                }}
+              />
 
-          try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/mail/reply/${encodeURIComponent(selectedEmail.message_id)}`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`, // ✅ Auth header added
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                subject: replySubject,
-                text: replyText,
-                html: `<p>${replyText.replace(/\n/g, '<br>')}</p>`,
-              }),
-            });
-
-            const result = await res.json();
-            console.log('Reply response:', result);
-
-            if (result.success) {
-              alert('Reply sent successfully!');
-              setShowReplyBox(false);
-              setReplyText('');
-            } else {
-              alert('Failed to send reply.');
-            }
-          } catch (err) {
-            console.error('❌ Reply error:', err);
-            alert('Error sending reply.');
-          } finally {
-            setLoadingReply(false);
-          }
-        }}
-        className="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-        disabled={loadingReply}
-      >
-        {loadingReply ? 'Sending...' : 'Send Reply'}
-      </button>
-    </div>
-  </div>
-)}
-
-              {/* Email Message Preview Logic */}
-              {(() => {
-                const html = selectedEmail.html_content || "";
-                const text = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ');
-                const words = text.trim().split(/\s+/).filter(Boolean);
-                const isLong = words.length > 250;
-                if (!isLong || isFullView || showFull) {
+              {/* Show View Full Mail link if more than 250 words and not in full view */}
+              {!isFullView && (() => {
+                let plainText = (selectedEmail.summary && selectedEmail.summary.trim().length > 0
+                  ? selectedEmail.summary
+                  : selectedEmail.html_content || '')
+                  .replace(/<[^>]*>?/gm, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+                const words = plainText.split(' ').filter(Boolean);
+                if (words.length > 50) {
                   return (
-                    <div
-                      className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all max-h-[60vh] overflow-y-auto custom-scrollbar-hide"
-                      style={{ boxShadow: '0 4px 24px 0 rgba(0,0,0,0.08)', margin: '0 auto', width: '100%' }}
-                      dangerouslySetInnerHTML={{ __html: html }}
-                    />
-                  );
-                }
-                const truncatedText = words.slice(0, 250).join(' ') + '...';
-                return (
-                  <>
-                    <div
-                      className="bg-white/90 border border-gray-300 rounded-xl p-5 shadow-md text-gray-800 text-base leading-relaxed whitespace-pre-line transition-all max-h-[60vh] overflow-y-auto custom-scrollbar-hide"
-                      style={{ boxShadow: '0 4px 24px 0 rgba(0,0,0,0.08)', margin: '0 auto', width: '100%' }}
-                    >
-                      {truncatedText}
-                    </div>
                     <div className="flex justify-end">
-                      <button
-                        onClick={() => setShowFull(true)}
-                        className="mt-2 px-4 py-1 text-sm bg-blue-600 text-white rounded shadow hover:bg-blue-700 transition-all"
+                      <a
+                        href="#"
+                        onClick={e => { e.preventDefault(); setIsFullView(true); }}
+                        className="mt-2 text-sm text-blue-600 hover:underline cursor-pointer"
+                        tabIndex={0}
+                        role="button"
+                        aria-label="View Full Mail"
                       >
                         View Full Mail
-                      </button>
+                      </a>
                     </div>
-                  </>
-                );
+                  );
+                }
+                return null;
               })()}
 
               {/* If you want to show attachments */}

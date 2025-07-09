@@ -36,14 +36,6 @@ body {
   animation: scroll 40s linear infinite;
 }
 
-/* Hide scrollbars cross-browser */
-.scrollbar-hide, .custom-scrollbar-hide {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none;    /* Firefox */
-}
-.scrollbar-hide::-webkit-scrollbar, .custom-scrollbar-hide::-webkit-scrollbar {
-  display: none;            /* Chrome, Safari, Opera */
-}
 
 @layer utilities {
   .animate-pulse-slow {

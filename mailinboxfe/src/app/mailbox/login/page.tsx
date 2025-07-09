@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useState ,useEffect} from "react";
+import React, { useState } from "react";
 import { Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -14,7 +14,7 @@ const handleLogin = async (e: React.FormEvent) => {
   e.preventDefault();
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/auth/login`, {
+    const response = await fetch("http://localhost:4000/auth/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -38,12 +38,12 @@ const handleLogin = async (e: React.FormEvent) => {
 };
   const router = useRouter();
 
-  useEffect(() => {
+  React.useEffect(() => {
     const token = localStorage.getItem("cqtoken");
     if (token) {
       router.push("/mailbox/mailinbox"); // 🔁 Redirect if already logged in
     }
-  }, []);
+  }, [router]);
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-white font-serif">
       <div className="max-w-6xl w-full flex flex-col md:flex-row rounded-3xl shadow-xl overflow-hidden border border-gray-200">

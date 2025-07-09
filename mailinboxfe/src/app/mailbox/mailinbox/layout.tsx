@@ -61,12 +61,11 @@ function MailLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const { searchTerm, setSearchTerm } = useSearch();
+  const { searchTerm, setSearchTerm, showSidebar, setShowSidebar } = useSearch();
 
   const [showFilter, setShowFilter] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [showSidebar, setShowSidebar] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
   const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [isNotified, setIsNotified] = useState(true);
@@ -86,7 +85,7 @@ function MailLayoutContent({ children }: { children: React.ReactNode }) {
 
   const closeSidebar = useCallback(() => { // Wrapped in useCallback for stability
     setShowSidebar(false);
-  }, []); // No dependencies, won't change
+  }, [setShowSidebar]); // No dependencies, won't change
 
   // FIX: Moved token decoding and user info setting into a useEffect
   // This runs only once on component mount.
@@ -143,7 +142,7 @@ function MailLayoutContent({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen bg-white text-gray-900 dark:text-white">
       {/* Sidebar */}
       <aside
-        className={`h-screen ${collapsed ? 'w-20' : 'w-72'} bg-blue-100 dark:bg-blue-900 fixed top-0 left-0 z-40 flex flex-col justify-between transition-all duration-300`}
+        className={`h-screen ${collapsed ? 'w-20' : 'w-72'} bg-blue-100 dark:bg-blue-900 fixed top-0 left-0 right-0 z-40 flex flex-col justify-between transition-all duration-300`}
       >
         <div className="p-4">
           <button
@@ -232,7 +231,14 @@ function MailLayoutContent({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Area */}
-      <div className={`flex-1 ${collapsed ? 'ml-20' : 'ml-72'}`}>
+      <div className={`flex-1 ${collapsed ? 'ml-20' : 'ml-72'} ${showSidebar ? 'max-w-[58rem]' : 'max-w-[70rem]'} transition-all duration-300 mx-auto`} 
+        style={{
+          maxWidth: showSidebar ? '58rem' : '70rem',
+          transition: 'max-width 0.3s',
+          overflowX: 'hidden', // Hide horizontal scroll
+          overflowY: 'hidden', // Hide vertical scroll
+        }}
+      >
         {/* Top Navbar */}
         <header className="fixed top-0 left-0 right-0 h-16 bg-white dark:bg-blue-900 flex items-center justify-between px-6 z-30 ml-[inherit] shadow-none">
           <div className="flex items-center gap-2 text-xl font-semibold text-blue-600 dark:text-blue-400">
@@ -604,7 +610,7 @@ function MailLayoutContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Content */}
-        <main className="pt-20 px-6">{children}</main>
+        <main className="pt-20 px-6 w-full">{children}</main>
       </div>
 
       {/* Floating Compose */}
