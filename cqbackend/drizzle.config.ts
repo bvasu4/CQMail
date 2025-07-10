@@ -5,6 +5,6 @@ export default defineConfig({
   out: './migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: 'postgres://postgres:admin@localhost:5432/cqmain',
+    url: `${process.env.DATABASE_URL}`,
   },
 });
